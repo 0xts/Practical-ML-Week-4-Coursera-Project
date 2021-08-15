@@ -1,0 +1,134 @@
+---
+title: 'Practical ML - W4: Coursera Project'
+author: "Tanish Sharma"
+date: "14/08/2021"
+output: html_document
+fig_caption: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, comment = NA, warning = FALSE)
+```
+
+## Introduction
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.
+
+The dataset used for this project is [Weight Lifting Exercises Dataset](http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har)^[Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013; Read more at: http://web.archive.org/web/20161217164008/http://groupware.les.inf.puc-rio.br/work.jsf?p1=11201]. The goal of this project is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants and predict the manner in which they did the exercise. The prediction variable is "classe" in the training dataset.
+
+Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes. Participants were supervised by an experienced weight lifter to make sure the execution complied to the manner they were supposed to simulate. The exercises were performed by six male participants aged between 20-28 years, with little weight lifting experience. We made sure that all participants could easily simulate the mistakes in a safe and controlled manner by using a relatively light dumbbell (1.25kg).
+
+## Loading libraries and dataset
+```{r, warning=FALSE, message=FALSE}
+library(caret)
+library(corrplot)
+library(gbm)
+library(randomForest)
+library(rpart)
+library(kernlab)
+set.seed(1221)
+
+training <- read.csv("../Downloads/pml-training.csv", na.strings = c("","#DIV/0!", NA));
+testing <- read.csv("../Downloads/pml-testing.csv", na.strings = c("", "#DIV/0!", NA));
+
+# Checking the dimensions of training dataset
+dim(training)
+#Checking the dimensions of testing dataset
+dim(testing)
+```
+
+## Exploration and cleaning of dataset
+
+First, we'll remove all the columns from the dataset that doesn't contain any relevant(for our analysis) data:
+```{r}
+training <- training[, colSums(is.na(training))==0];
+testing <- testing[,colSums(is.na(testing))==0];
+
+names(training);
+```
+
+Looking at the remaining variables, we can see that the first 7 variables won't be of any use in analysis so we can get rid of them.
+
+```{r}
+training <- training[,-c(1:7)]
+testing <- testing[,-c(1:7)]
+dim(training)
+dim(testing)
+```
+
+Next, we'll check the remaining variables for correlation to see which variables explain the most variance of the data.
+
+```{r}
+# Checking for variables that has near zero correlation.
+nearZeroVar(training)
+```
+
+So, all the variables seem significant in correlation. Let's plot the correlation of variables: 
+
+```{r fig.cap="**Correlation Plot: The high color intensity points depict high correlation between variables.**", fig.align='center'}
+cor_matrix <- cor(training[,-53])
+corrplot(cor_matrix, order = "FPC", method = "color", type = "upper", tl.cex = 0.8, tl.col = rgb(0,0,0))
+```
+
+<br>
+
+## Partitioning the data
+
+Now that we have cleaned the data, let's partition the data into training and validation sets. We'll keep 70% of the data for training and will use the rest of it for validation test.
+
+```{r}
+inTrain <- createDataPartition(y=training$classe, p=0.7, list = FALSE)
+trainData <- training[inTrain,]
+validationData <- training[-inTrain,]
+```
+
+## Model Selection
+
+For classification problems, algorithms such as Support Vector Machines(SVMs), Random Forests, Gradient Boosted Trees, Decision Trees, K-Nearest Neighbors, Linear Regression etc tends to work pretty well. So, we'll try to model our data using these algorithms and compare their accuracies to select the best performing algorithm.
+
+First, let's try using __Support Vector Machines__:
+
+```{r cache=TRUE, cache.lazy=TRUE}
+# Setting the training control parameter for 3-fold cross validation
+ctrl <- trainControl(method = "cv", number = 3, verboseIter = FALSE)
+
+# Training an SVM model
+modelSVM <- train(classe ~ ., data=trainData, method="svmLinear", trControl = ctrl, tunelength = 5, verbose = FALSE)
+
+# Predicting on validation data and checking for accuracy
+predsSVM <- predict(modelSVM, validationData)
+confusionMatrix(predsSVM, factor(validationData$classe))
+```
+
+We get 78.15% accuracy with Support Vector Machines algorithm. Now, let's try using __Random Forest__: 
+
+```{r cache=TRUE, cache.lazy=TRUE}
+# Training a Random Forest model
+modelRF <- train(classe ~ ., data = trainData, method = "rf", trControl = ctrl, tuneLength = 5)
+
+# Predicting on validation data and checking for accuracy
+predsRF <- predict(modelRF, validationData)
+confusionMatrix(predsRF, factor(validationData$classe))
+```
+
+Random Forest gives us an accuracy of 99.42%. Next, let's try using __Gradient Boosted Trees__:
+
+```{r cache=TRUE, cache.lazy=TRUE}
+# Training a Gradient Boosted Trees model
+modelGBT <- train(classe ~ ., data = trainData, method = "gbm", trControl = ctrl, tuneLength = 5, verbose = FALSE)
+
+# Predicting on validation data and checking for accuracy
+predsGBT <- predict(modelGBT, validationData)
+confusionMatrix(predsGBT, factor(validationData$classe))
+```
+
+Gradient Boosted Trees gives an accuracy of 98.73.%, and looking at the accuracies, it seems that these 3 models are sufficient for our purpose and comparing the accuracies, and the Random Forest algorithm models our data best.
+
+## Predicting on Test dataset
+
+Since we've selected our model, we'll now predict on test dataset:
+
+```{r}
+predsTest <- predict(modelRF, testing)
+predsTest
+```
